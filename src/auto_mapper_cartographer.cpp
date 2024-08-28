@@ -13,8 +13,6 @@
 #include <slam_toolbox/srv/detail/save_map__struct.hpp>
 #include <fstream>
 
-#include <iostream>
-
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/range.hpp"
@@ -90,9 +88,9 @@ public:
     }
 
 private:
-    const double MIN_FRONTIER_DENSITY = 0.2; //0.3
+    const double MIN_FRONTIER_DENSITY = 0.3;
     const double MIN_DISTANCE_TO_FRONTIER = 1.0;
-    const int MIN_FREE_THRESHOLD = 2; //4 减少该参数， 增加选取边界点数量
+    const int MIN_FREE_THRESHOLD = 4;
     Costmap2D costmap_;
     rclcpp_action::Client<NavigateToPose>::SharedPtr poseNavigator_;
     Publisher<MarkerArray>::SharedPtr markerArrayPublisher_;
@@ -139,7 +137,7 @@ private:
 
     void updateFullMap(OccupancyGrid::UniquePtr occupancyGrid) {
         if (pose_ == nullptr) { return; }
-        RCLCPP_INFO(get_logger(), "updateFullMap start...");
+        RCLCPP_INFO(get_logger(), "updateFullMap...");
         const auto occupancyGridInfo = occupancyGrid->info;
         unsigned int size_in_cells_x = occupancyGridInfo.width;
         unsigned int size_in_cells_y = occupancyGridInfo.height;
@@ -147,21 +145,17 @@ private:
         double origin_x = occupancyGridInfo.origin.position.x;
         double origin_y = occupancyGridInfo.origin.position.y;
 
-        // // debug
-        // ofstream outputFile;
-        // outputFile.open("DataMap_CG_082701.txt",ios::app); 
-        // int maxData = -300; //max = 100
-        // int minData = 300; //min = -1;
-        // for(int i = 0; i< size_in_cells_x * size_in_cells_y; i++){
-        //     if(occupancyGrid->data[i] > maxData){
-        //         maxData = occupancyGrid->data[i];
-        //     }
-        //     if(occupancyGrid->data[i] < minData){
-        //         minData = occupancyGrid->data[i];
-        //     }
-        //     outputFile <<  (int) occupancyGrid->data[i] << "\n";
-        // }
-        // outputFile.close();
+        //debug
+        int maxData = -300; //max = 100;
+        int minData = 300; //min = -1;
+        for(int i = 0; i< size_in_cells_x * size_in_cells_y; i++){
+            if(occupancyGrid->data[i] > maxData){
+                maxData = occupancyGrid->data[i];
+            }
+            if(occupancyGrid->data[i] < minData){
+                minData = occupancyGrid->data[i];
+            }
+        }
 
         RCLCPP_INFO(get_logger(), "received full new map, resizing to: %d, %d", size_in_cells_x,
                     size_in_cells_y);
@@ -180,35 +174,21 @@ private:
         size_t costmap_size = costmap_.getSizeInCellsX() * costmap_.getSizeInCellsY();
         RCLCPP_INFO(get_logger(), "full map update, %lu values", costmap_size);
         for (size_t i = 0; i < costmap_size && i < occupancyGrid->data.size(); ++i) {
-            //adapt to diversive grid map
-            if(occupancyGrid->data[i] >= 55){
-                occupancyGrid->data[i] = 100;
-            }else if(occupancyGrid->data[i] < 55 && occupancyGrid->data[i] >= 10){
-                occupancyGrid->data[i] = -1;
-            }
-            // else{
-            //     occupancyGrid->data[i] = -1;
-            // }
-
             auto cell_cost = static_cast<unsigned char>(occupancyGrid->data[i]);
             costmap_data[i] = costTranslationTable_[cell_cost];
         }
 
-        // // debug
-        // ofstream outputFile2;
-        // outputFile2.open("DataMapCost_CG_082701.txt",ios::app); 
-        // int maxDataCost = -300; //max = 255
-        // int minDataCost = 300; //min = 0;
-        // for(int i = 0; i< costmap_size; i++){
-        //     if(costmap_data[i] > maxDataCost){
-        //         maxDataCost = costmap_data[i];
-        //     }
-        //     if(costmap_data[i] < minDataCost){
-        //         minDataCost = costmap_data[i];
-        //     }
-        //     outputFile2 <<  (int) costmap_data[i] << "\n";
-        // }
-        // outputFile2.close();
+        //debug
+        int maxDataCost = -300; //max = 
+        int minDataCost = 300; //min =
+        for(int i = 0; i< costmap_size; i++){
+            if(costmap_data[i] > maxDataCost){
+                maxDataCost = costmap_data[i];
+            }
+            if(costmap_data[i] < minDataCost){
+                minDataCost = costmap_data[i];
+            }
+        }
 
         explore();
     }
@@ -263,7 +243,7 @@ private:
         if (isExploring_) { return; }
         auto frontiers = findFrontiers();
         if (frontiers.empty()) {
-            RCLCPP_WARN(get_logger(), "NO BOUNDARIES FOUND!!");
+            RCLCPP_WARN(get_logger(), "NO BOUNDARIES FOUND!!--sw--");
             stop();
             return;
         }
@@ -276,7 +256,6 @@ private:
 
         RCLCPP_INFO(get_logger(), "Sending goal %f,%f", frontier.centroid.x, frontier.centroid.y);
 
-        //start to navigate
         auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
         send_goal_options.goal_response_callback = [this, &frontier](
                 const GoalHandleNavigateToPose::SharedPtr &goal_handle) {
@@ -318,18 +297,18 @@ private:
     }
 
     void saveMap() {
-        // auto mapSerializer = create_client<slam_toolbox::srv::SerializePoseGraph>(
-        //         "/slam_toolbox/serialize_map");
-        // auto serializePoseGraphRequest =
-        //         std::make_shared<slam_toolbox::srv::SerializePoseGraph::Request>();
-        // serializePoseGraphRequest->filename = mapPath_;
-        // auto serializePoseResult = mapSerializer->async_send_request(serializePoseGraphRequest);
+        auto mapSerializer = create_client<slam_toolbox::srv::SerializePoseGraph>(
+                "/slam_toolbox/serialize_map");
+        auto serializePoseGraphRequest =
+                std::make_shared<slam_toolbox::srv::SerializePoseGraph::Request>();
+        serializePoseGraphRequest->filename = mapPath_;
+        auto serializePoseResult = mapSerializer->async_send_request(serializePoseGraphRequest);
 
-        // auto map_saver = create_client<slam_toolbox::srv::SaveMap>(
-        //         "/slam_toolbox/save_map");
-        // auto saveMapRequest = std::make_shared<slam_toolbox::srv::SaveMap::Request>();
-        // saveMapRequest->name.data = mapPath_;
-        // auto saveMapResult = map_saver->async_send_request(saveMapRequest);
+        auto map_saver = create_client<slam_toolbox::srv::SaveMap>(
+                "/slam_toolbox/save_map");
+        auto saveMapRequest = std::make_shared<slam_toolbox::srv::SaveMap::Request>();
+        saveMapRequest->name.data = mapPath_;
+        auto saveMapResult = map_saver->async_send_request(saveMapRequest);
     }
 
     vector<unsigned int> nhood8(unsigned int idx) {
@@ -356,7 +335,7 @@ private:
                 out.push_back(costmap_.getIndex(newX, newY));
             }
         }
-        return out;
+        return out;//返回8个相邻的地图cell的idx
     }
 
     bool isAchievableFrontierCell(unsigned int idx,
@@ -367,24 +346,14 @@ private:
             return false;
         }
 
-        //check there's enough free space for robot to move to frontier 
+        //check there's enough free space for robot to move to frontier
         int freeCount = 0;
-        int occupiedCount = 0;
         for (unsigned int nbr: nhood8(idx)) {
             if (map[nbr] == FREE_SPACE) {
-                // if (++freeCount >= MIN_FREE_THRESHOLD) {
-                //     return true;
-                // }
-                freeCount++;
+                if (++freeCount >= MIN_FREE_THRESHOLD) {
+                    return true;
+                }
             }
-            if(map[nbr] == LETHAL_OBSTACLE){
-                occupiedCount++;
-            }
-
-            if(freeCount >= MIN_FREE_THRESHOLD && occupiedCount <= 2){
-                return true;
-            }
-
         }
 
         return false;
@@ -478,23 +447,11 @@ private:
                     frontier_flag[nbr] = true;
                     const Frontier frontier = buildNewFrontier(nbr, frontier_flag);
 
-                    // double distance = sqrt(pow((double(frontier.centroid.x) - double(position.x)), 2.0) +
-                    //                        pow((double(frontier.centroid.y) - double(position.y)), 2.0));
-                    double distance = 0;
-                    if(!isnan(frontier.centroid.x)){
-                        distance = sqrt(pow((double(frontier.centroid.x) - double(position.x)), 2.0) +
+                    double distance = sqrt(pow((double(frontier.centroid.x) - double(position.x)), 2.0) +
                                            pow((double(frontier.centroid.y) - double(position.y)), 2.0));
-                    }
-                    //debug
-                    RCLCPP_INFO(get_logger(), "distance: %0.6f; position.x: %0.6f; position.y: %0.6f", distance, position.x, position.y);
-                    
                     if (distance < MIN_DISTANCE_TO_FRONTIER) { continue; }
-                    //debug
-                    double frontier_density = frontier.points.size() * costmap_.getResolution();
-                    RCLCPP_INFO(get_logger(), "frontier_density: %0.6f", frontier_density);
-
-                    //max of frontier.points.size() = 8
-                    if (frontier.points.size() * costmap_.getResolution() >= MIN_FRONTIER_DENSITY) {
+                    if (frontier.points.size() * costmap_.getResolution() >=
+                        MIN_FRONTIER_DENSITY) {
                         frontier_list.push_back(frontier);
                     }
                 }

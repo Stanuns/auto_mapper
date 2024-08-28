@@ -29,7 +29,8 @@ set(deps
         tf2_geometry_msgs
         map_msgs)
 set(targets
-        auto_mapper)
+        auto_mapper
+        auto_mapper_cartographer)
 
 foreach (d ${deps})
   find_package(${d} REQUIRED)

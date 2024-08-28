@@ -2,3 +2,5 @@
 cmake-build-debug
 include/*
 !include/auto_mapper/.gitkeep
+
+launch/__pycache__/
