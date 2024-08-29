@@ -102,6 +102,8 @@ private:
     int markerId_;
     string mapPath_;
 
+    int checkFrontierEmpty = 0;
+
 
     Subscription<PoseWithCovarianceStamped>::SharedPtr poseSubscription_;
     PoseWithCovarianceStamped::UniquePtr pose_;
@@ -261,12 +263,25 @@ private:
 
     void explore() {
         if (isExploring_) { return; }
-        auto frontiers = findFrontiers();
-        if (frontiers.empty()) {
-            RCLCPP_WARN(get_logger(), "NO BOUNDARIES FOUND!!");
-            stop();
+        auto frontiers = SearchFrontiers();
+        // if (frontiers.empty()) {
+        //     RCLCPP_WARN(get_logger(), "NO BOUNDARIES FOUND!!");
+        //     stop();
+        //     return;
+        // }
+        if(frontiers.empty()){
+            checkFrontierEmpty++;
+            if(checkFrontierEmpty > 3){
+                RCLCPP_WARN(get_logger(), "NO BOUNDARIES FOUND!!");
+                stop();
+                return;
+            }
+            RCLCPP_WARN(get_logger(), "No frontiers can be searched!, checkFrontierEmpty: %d", checkFrontierEmpty);
             return;
         }
+        checkFrontierEmpty = 0;
+        
+
         const auto frontier = frontiers[0];
         drawMarkers(frontiers);
         auto goal = NavigateToPose::Goal();
@@ -381,7 +396,7 @@ private:
                 occupiedCount++;
             }
 
-            if(freeCount >= MIN_FREE_THRESHOLD && occupiedCount <= 2){
+            if(freeCount >= MIN_FREE_THRESHOLD && occupiedCount < 1){
                 return true;
             }
 
@@ -390,7 +405,7 @@ private:
         return false;
     }
 
-    Frontier buildNewFrontier(unsigned int neighborCell, vector<bool> &frontier_flag) {
+    Frontier BuildNewFrontier(unsigned int neighborCell, vector<bool> &frontier_flag) {
         Frontier output;
         output.centroid.x = 0;
         output.centroid.y = 0;
@@ -433,7 +448,7 @@ private:
         return output;
     }
 
-    vector<Frontier> findFrontiers() {
+    vector<Frontier> SearchFrontiers() {
         vector<Frontier> frontier_list;
         const auto position = pose_->pose.pose.position;
         unsigned int mx, my;
@@ -476,7 +491,7 @@ private:
                     // neighbour)
                 } else if (isAchievableFrontierCell(nbr, frontier_flag)) {
                     frontier_flag[nbr] = true;
-                    const Frontier frontier = buildNewFrontier(nbr, frontier_flag);
+                    const Frontier frontier = BuildNewFrontier(nbr, frontier_flag);
 
                     // double distance = sqrt(pow((double(frontier.centroid.x) - double(position.x)), 2.0) +
                     //                        pow((double(frontier.centroid.y) - double(position.y)), 2.0));
