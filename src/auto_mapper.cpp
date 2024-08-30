@@ -73,18 +73,21 @@ public:
         RCLCPP_INFO(get_logger(), "AutoMapper started...");
 
         poseSubscription_ = create_subscription<PoseWithCovarianceStamped>(
-                "/pose", 10, bind(&AutoMapper::poseTopicCallback, this, _1));
+                "/pose", 10, bind(&AutoMapper::PoseTopicCallback, this, _1));
 
-        mapSubscription_ = create_subscription<OccupancyGrid>(
-                "/map", 10, bind(&AutoMapper::updateFullMap, this, _1));
+        map_subscription_ = create_subscription<OccupancyGrid>(
+                "/map", 10, bind(&AutoMapper::UpdateFullMap, this, _1));
 
         markerArrayPublisher_ = create_publisher<MarkerArray>("/frontiers", 10);
-        poseNavigator_ = rclcpp_action::create_client<NavigateToPose>(
+        nav2_action_client_ = rclcpp_action::create_client<NavigateToPose>(
                 this,
                 "/navigate_to_pose");
 
-        poseNavigator_->wait_for_action_server();
-        RCLCPP_INFO(get_logger(), "AutoMapper poseNavigator_");
+        while(!nav2_action_client_->wait_for_action_server(std::chrono::seconds(5))){
+            RCLCPP_INFO(get_logger(), "Navigation action server not available after waiting");
+        }
+        
+        RCLCPP_INFO(get_logger(), "AutoMapper nav2_action_client_");
         declare_parameter("map_path", rclcpp::PARAMETER_STRING);
         get_parameter("map_path", mapPath_);
     }
@@ -92,12 +95,12 @@ public:
 private:
     const double MIN_FRONTIER_DENSITY = 0.2; //0.3
     const double MIN_DISTANCE_TO_FRONTIER = 1.0;
-    const int MIN_FREE_THRESHOLD = 2; //4 减少该参数， 增加选取边界点数量
+    const int MIN_FREE_THRESHOLD = 4; //4 减少该参数， 增加选取边界点数量
     Costmap2D costmap_;
-    rclcpp_action::Client<NavigateToPose>::SharedPtr poseNavigator_;
+    rclcpp_action::Client<NavigateToPose>::SharedPtr nav2_action_client_;
     Publisher<MarkerArray>::SharedPtr markerArrayPublisher_;
     MarkerArray markersMsg_;
-    Subscription<OccupancyGrid>::SharedPtr mapSubscription_;
+    Subscription<OccupancyGrid>::SharedPtr map_subscription_;
     bool isExploring_ = false;
     int markerId_;
     string mapPath_;
@@ -134,14 +137,14 @@ private:
         string getKey() const{to_string(centroid.x) + "," + to_string(centroid.y);}
     };
 
-    void poseTopicCallback(PoseWithCovarianceStamped::UniquePtr pose) {
+    void PoseTopicCallback(PoseWithCovarianceStamped::UniquePtr pose) {
         pose_ = move(pose);
-        RCLCPP_INFO(get_logger(), "poseTopicCallback...");
+        RCLCPP_INFO(get_logger(), "PoseTopicCallback...");
     }
 
-    void updateFullMap(OccupancyGrid::UniquePtr occupancyGrid) {
+    void UpdateFullMap(OccupancyGrid::UniquePtr occupancyGrid) {
         if (pose_ == nullptr) { return; }
-        RCLCPP_INFO(get_logger(), "updateFullMap start...");
+        RCLCPP_INFO(get_logger(), "update full map start...");
         const auto occupancyGridInfo = occupancyGrid->info;
         unsigned int size_in_cells_x = occupancyGridInfo.width;
         unsigned int size_in_cells_y = occupancyGridInfo.height;
@@ -185,7 +188,7 @@ private:
             //adapt to diversive grid map
             if(occupancyGrid->data[i] >= 55){
                 occupancyGrid->data[i] = 100;
-            }else if(occupancyGrid->data[i] < 55 && occupancyGrid->data[i] >= 10){
+            }else if(occupancyGrid->data[i] < 40 && occupancyGrid->data[i] >= 10){
                 occupancyGrid->data[i] = -1;
             }
             // else{
@@ -212,19 +215,23 @@ private:
         // }
         // outputFile2.close();
 
-        explore();
+        Explore();
     }
 
-    void drawMarkers(const vector<Frontier> &frontiers) {
-        for (const auto &frontier: frontiers) {
-            RCLCPP_INFO(get_logger(), "visualising %f,%f ", frontier.centroid.x, frontier.centroid.y);
-            ColorRGBA green;
-            green.r = 0;
-            green.g = 1.0;
-            green.b = 0;
-            green.a = 1.0;
+    void DrawMarkers(const vector<Frontier> &frontiers) {
+        // markersMsg_
+        vector<Marker> &mm_markers = markersMsg_.markers;
+        ColorRGBA colour;
+        colour.r = 0.5;
+        colour.g = 0.7;
+        colour.b = 0.7;
+        colour.a = 1.0;
+        
+        RCLCPP_INFO(get_logger(), "DrawMarkers:frontiers.size(): %d ", frontiers.size());
 
-            vector<Marker> &markers = markersMsg_.markers;
+        for (const auto &frontier: frontiers) {
+            RCLCPP_INFO(get_logger(), "visualising: %f,%f ", frontier.centroid.x, frontier.centroid.y);
+
             Marker m;
 
             m.header.frame_id = "map";
@@ -239,13 +246,13 @@ private:
             m.scale.x = 0.3;
             m.scale.y = 0.3;
             m.scale.z = 0.3;
-            m.color = green;
-            markers.push_back(m);
-            markerArrayPublisher_->publish(markersMsg_);
+            m.color = colour;
+            mm_markers.push_back(m);           
         }
+        markerArrayPublisher_->publish(markersMsg_);
     }
 
-    void clearMarkers() {
+    void ClearMarkers() {
         for (auto &m: markersMsg_.markers) {
             m.action = Marker::DELETE;
         }
@@ -255,13 +262,13 @@ private:
     void stop() {
         RCLCPP_INFO(get_logger(), "Stopped...");
         poseSubscription_.reset();
-        mapSubscription_.reset();
-        poseNavigator_->async_cancel_all_goals();
-        saveMap();
-        clearMarkers();
+        map_subscription_.reset();
+        nav2_action_client_->async_cancel_all_goals();
+        //saveMap();
+        ClearMarkers();
     }
 
-    void explore() {
+    void Explore() {
         if (isExploring_) { return; }
         auto frontiers = SearchFrontiers();
         // if (frontiers.empty()) {
@@ -277,27 +284,32 @@ private:
                 return;
             }
             RCLCPP_WARN(get_logger(), "No frontiers can be searched!, checkFrontierEmpty: %d", checkFrontierEmpty);
+            //清空map_subscription_的map数据
+
             return;
         }
         checkFrontierEmpty = 0;
         
 
+        //debug 
+        RCLCPP_WARN(get_logger(), "-----1-----frontiers.size(): %d ---------isExploring_:%d ", frontiers.size(),isExploring_);
+
+        DrawMarkers(frontiers);
         const auto frontier = frontiers[0];
-        drawMarkers(frontiers);
         auto goal = NavigateToPose::Goal();
         goal.pose.pose.position = frontier.centroid;
-        goal.pose.pose.orientation.w = 1.;
+        // goal.pose.pose.orientation.w = 1.;
         goal.pose.header.frame_id = "map";
-
         RCLCPP_INFO(get_logger(), "Sending goal %f,%f", frontier.centroid.x, frontier.centroid.y);
 
-        //start to navigate
+        //send_goal()
         auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
         send_goal_options.goal_response_callback = [this, &frontier](
                 const GoalHandleNavigateToPose::SharedPtr &goal_handle) {
             if (goal_handle) {
                 RCLCPP_INFO(get_logger(), "Goal accepted by server, waiting for result");
                 isExploring_ = true;
+                RCLCPP_INFO(get_logger(), "---------Goal start, isExploring_: %d ",isExploring_);
             } else {
                 RCLCPP_ERROR(get_logger(), "Goal was rejected by server");
             }
@@ -311,9 +323,10 @@ private:
 
         send_goal_options.result_callback = [this](const GoalHandleNavigateToPose::WrappedResult &result) {
             isExploring_ = false;
-            saveMap();
-            clearMarkers();
-            explore();
+            RCLCPP_INFO(get_logger(), "---------Goal end wth a result, isExploring_: %d",isExploring_);
+            //saveMap();
+            ClearMarkers();
+            // Explore();
             switch (result.code) {
                 case rclcpp_action::ResultCode::SUCCEEDED:
                     RCLCPP_INFO(get_logger(), "Goal reached");
@@ -329,7 +342,7 @@ private:
                     break;
             }
         };
-        poseNavigator_->async_send_goal(goal, send_goal_options);
+        nav2_action_client_->async_send_goal(goal, send_goal_options);
     }
 
     void saveMap() {
@@ -374,7 +387,50 @@ private:
         return out;
     }
 
-    bool isAchievableFrontierCell(unsigned int idx,
+    vector<unsigned int> nhood24(unsigned int idx) {
+        unsigned int mx, my;
+        vector<unsigned int> out;
+        costmap_.indexToCells(idx, mx, my);
+        const int x = mx;
+        const int y = my;
+        const pair<int, int> directions[] = {
+                pair(-1, -1),
+                pair(-1, 1),
+                pair(1, -1),
+                pair(1, 1),
+                pair(1, 0),
+                pair(-1, 0),
+                pair(0, 1),
+                pair(0, -1),
+                pair(-2, -2),
+                pair(-2, -1),
+                pair(-2, 0),
+                pair(-2, 1),
+                pair(-2, 2),
+                pair(-1, -2),
+                pair(-1, 2),
+                pair(0, -2),
+                pair(0, 2),
+                pair(1, -2),
+                pair(1, 2),
+                pair(2, -2),
+                pair(2, -1),
+                pair(2, 0),
+                pair(2, 1),
+                pair(2, 2),
+        };
+        for (const auto &d: directions) {
+            int newX = x + d.first;
+            int newY = y + d.second;
+            if (newX > -1 && newX < costmap_.getSizeInCellsX() &&
+                newY > -1 && newY < costmap_.getSizeInCellsY()) {
+                out.push_back(costmap_.getIndex(newX, newY));
+            }
+        }
+        return out;
+    }
+
+    bool IsAchievableFrontierCell(unsigned int idx,
                                   const vector<bool> &frontier_flag) {
         auto map = costmap_.getCharMap();
         // check that cell is unknown and not already marked as frontier
@@ -385,7 +441,7 @@ private:
         //check there's enough free space for robot to move to frontier 
         int freeCount = 0;
         int occupiedCount = 0;
-        for (unsigned int nbr: nhood8(idx)) {
+        for (unsigned int nbr: nhood24(idx)) {
             if (map[nbr] == FREE_SPACE) {
                 // if (++freeCount >= MIN_FREE_THRESHOLD) {
                 //     return true;
@@ -420,7 +476,7 @@ private:
             // try adding cells in 8-connected neighborhood to frontier
             for (unsigned int nbr: nhood8(idx)) {
                 // check if neighbour is a potential frontier cell
-                if (isAchievableFrontierCell(nbr, frontier_flag)) {
+                if (IsAchievableFrontierCell(nbr, frontier_flag)) {
                     // mark cell as frontier
                     frontier_flag[nbr] = true;
                     unsigned int mx, my;
@@ -474,6 +530,8 @@ private:
         queue<unsigned int> bfs;
 
         unsigned int pos = costmap_.getIndex(mx, my);
+        RCLCPP_INFO(get_logger(), "-----------------costmap_.getIndex: %d", pos);
+
         bfs.push(pos);
         visited_flag[bfs.front()] = true;
 
@@ -489,7 +547,7 @@ private:
                     bfs.push(nbr);
                     // check if cell is new frontier cell (unvisited, NO_INFORMATION, free
                     // neighbour)
-                } else if (isAchievableFrontierCell(nbr, frontier_flag)) {
+                } else if (IsAchievableFrontierCell(nbr, frontier_flag)) {
                     frontier_flag[nbr] = true;
                     const Frontier frontier = BuildNewFrontier(nbr, frontier_flag);
 
@@ -501,7 +559,7 @@ private:
                                            pow((double(frontier.centroid.y) - double(position.y)), 2.0));
                     }
                     //debug
-                    RCLCPP_INFO(get_logger(), "distance: %0.6f; position.x: %0.6f; position.y: %0.6f", distance, position.x, position.y);
+                    // RCLCPP_INFO(get_logger(), "distance: %0.6f; position.x: %0.6f; position.y: %0.6f", distance, position.x, position.y);
                     
                     if (distance < MIN_DISTANCE_TO_FRONTIER) { continue; }
                     //debug
