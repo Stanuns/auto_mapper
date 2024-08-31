@@ -38,6 +38,7 @@ set(targets
         auto_mapper
         auto_mapper_cartographer
         send_goal_nav2
+        marker_publisher
         )
 
 foreach (d ${deps})

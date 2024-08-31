@@ -48,7 +48,7 @@ public:
     auto goal_msg = NavigateToPose::Goal();
     goal_msg.pose.pose.position.x = -4.0f;
     goal_msg.pose.pose.position.y = -2.0f;
-    goal_msg.pose.pose.orientation.w = 1.0f;
+    // goal_msg.pose.pose.orientation.w = 1.0f;
     goal_msg.pose.header.frame_id = "map";
 
     RCLCPP_INFO(this->get_logger(), "Sending goal");

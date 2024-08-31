@@ -1,8 +1,6 @@
 //
 // Created by omar on 2/5/24.
-//
-//
-// Created by omar on 1/30/24.
+// Modified by Wei.Sun on 08/19/24
 //
 #include <chrono>
 #include <functional>
@@ -93,16 +91,16 @@ public:
     }
 
 private:
-    const double MIN_FRONTIER_DENSITY = 0.2; //0.3
+    const double MIN_FRONTIER_DENSITY = 0.3; //0.3
     const double MIN_DISTANCE_TO_FRONTIER = 1.0;
     const int MIN_FREE_THRESHOLD = 4; //4 减少该参数， 增加选取边界点数量
     Costmap2D costmap_;
     rclcpp_action::Client<NavigateToPose>::SharedPtr nav2_action_client_;
     Publisher<MarkerArray>::SharedPtr markerArrayPublisher_;
-    MarkerArray markersMsg_;
+    // MarkerArray markersMsg_;
     Subscription<OccupancyGrid>::SharedPtr map_subscription_;
     bool isExploring_ = false;
-    int markerId_;
+    // int markerId_;
     string mapPath_;
 
     int checkFrontierEmpty = 0;
@@ -220,11 +218,13 @@ private:
 
     void DrawMarkers(const vector<Frontier> &frontiers) {
         // markersMsg_
+        MarkerArray markersMsg_;
+        int markerId_= 0 ;
         vector<Marker> &mm_markers = markersMsg_.markers;
         ColorRGBA colour;
-        colour.r = 0.5;
-        colour.g = 0.7;
-        colour.b = 0.7;
+        colour.r = 1;
+        colour.g = 1;
+        colour.b = 0;
         colour.a = 1.0;
         
         RCLCPP_INFO(get_logger(), "DrawMarkers:frontiers.size(): %d ", frontiers.size());
@@ -253,10 +253,10 @@ private:
     }
 
     void ClearMarkers() {
-        for (auto &m: markersMsg_.markers) {
-            m.action = Marker::DELETE;
-        }
-        markerArrayPublisher_->publish(markersMsg_);
+        // for (auto &m: markersMsg_.markers) {
+        //     m.action = Marker::DELETE;
+        // }
+        // markerArrayPublisher_->publish(markersMsg_);
     }
 
     void stop() {
@@ -265,7 +265,7 @@ private:
         map_subscription_.reset();
         nav2_action_client_->async_cancel_all_goals();
         //saveMap();
-        ClearMarkers();
+        // ClearMarkers();
     }
 
     void Explore() {
@@ -325,7 +325,7 @@ private:
             isExploring_ = false;
             RCLCPP_INFO(get_logger(), "---------Goal end wth a result, isExploring_: %d",isExploring_);
             //saveMap();
-            ClearMarkers();
+            // ClearMarkers();
             // Explore();
             switch (result.code) {
                 case rclcpp_action::ResultCode::SUCCEEDED:
