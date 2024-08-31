@@ -88,6 +88,9 @@ public:
         RCLCPP_INFO(get_logger(), "AutoMapper nav2_action_client_");
         declare_parameter("map_path", rclcpp::PARAMETER_STRING);
         get_parameter("map_path", mapPath_);
+
+        pre_goal.pose.pose.position.x = 0;
+        pre_goal.pose.pose.position.y = 0;
     }
 
 private:
@@ -104,6 +107,8 @@ private:
     string mapPath_;
 
     int checkFrontierEmpty = 0;
+
+    NavigateToPose::Goal pre_goal;
 
 
     Subscription<PoseWithCovarianceStamped>::SharedPtr poseSubscription_;
@@ -298,9 +303,24 @@ private:
         const auto frontier = frontiers[0];
         auto goal = NavigateToPose::Goal();
         goal.pose.pose.position = frontier.centroid;
+
+        //judge the distance of goal and pre_goal, if distance<0.8m, then const auto frontier = frontiers[(int)(frontiers.size()-1)/2];
+        double dis_goal_pre_goal = sqrt(pow((double(goal.pose.pose.position.x) - double(pre_goal.pose.pose.position.x)), 2.0) +
+                                           pow((double(goal.pose.pose.position.y) - double(pre_goal.pose.pose.position.y)), 2.0));
+        if(dis_goal_pre_goal < 0.8){
+            if(frontiers.size()>4){
+                goal.pose.pose.position = frontiers[4].centroid;
+            }else{
+                goal.pose.pose.position = frontiers[frontiers.size()-1].centroid;
+            }
+            
+        }
+
         // goal.pose.pose.orientation.w = 1.;
         goal.pose.header.frame_id = "map";
         RCLCPP_INFO(get_logger(), "Sending goal %f,%f", frontier.centroid.x, frontier.centroid.y);
+
+        pre_goal.pose.pose.position = goal.pose.pose.position;
 
         //send_goal()
         auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
