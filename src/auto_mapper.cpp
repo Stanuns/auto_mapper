@@ -8,7 +8,7 @@
 #include <string>
 #include <array>
 #include <filesystem>
-#include <slam_toolbox/srv/detail/save_map__struct.hpp>
+// #include <slam_toolbox/srv/detail/save_map__struct.hpp>
 #include <fstream>
 
 #include <iostream>
@@ -30,7 +30,7 @@
 #include "std_msgs/std_msgs/msg/color_rgba.hpp"
 #include "nav2_map_server/map_mode.hpp"
 #include "nav2_map_server/map_saver.hpp"
-#include "slam_toolbox/srv/serialize_pose_graph.hpp"
+// #include "slam_toolbox/srv/serialize_pose_graph.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
@@ -269,7 +269,7 @@ private:
         poseSubscription_.reset();
         map_subscription_.reset();
         nav2_action_client_->async_cancel_all_goals();
-        //saveMap();
+        // saveMap();
         // ClearMarkers();
     }
 
@@ -284,7 +284,7 @@ private:
         if(frontiers.empty()){
             checkFrontierEmpty++;
             if(checkFrontierEmpty > 3){
-                RCLCPP_WARN(get_logger(), "NO BOUNDARIES FOUND!!");
+                RCLCPP_WARN(get_logger(), "NO BOUNDARIES FOUND and SAVE MAP!");
                 stop();
                 return;
             }
